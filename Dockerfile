@@ -1,7 +1,4 @@
-FROM golang:1.24-alpine AS builder
-
-# Install required system dependencies
-RUN apk add --no-cache git
+FROM golang:1.24 AS builder
 
 # Set the working directory
 WORKDIR /app
@@ -18,24 +15,19 @@ COPY . .
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o go-dbdumper .
 
-# Use MySQL image to get the client tools
-FROM mysql:8.0 as mysql
+# Use Debian-based image for the final container
+FROM debian:bookworm-slim
 
-# Use a minimal image for the final container
-FROM alpine:3.18
-
-# Install PostgreSQL client and other tools
-RUN apk add --no-cache postgresql-client ca-certificates tzdata libaio
-
-# Copy MySQL client from the MySQL image
-COPY --from=mysql /usr/bin/mysqldump /usr/bin/
-# Copy required libraries
-COPY --from=mysql /usr/lib/libmysqlclient.so* /usr/lib/
-COPY --from=mysql /usr/lib/libssl.so* /usr/lib/
-COPY --from=mysql /usr/lib/libcrypto.so* /usr/lib/
+# Install MySQL 8 client, PostgreSQL client, and other tools
+RUN apt-get update && apt-get install -y \
+    default-mysql-client \
+    postgresql-client \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
-RUN adduser -D -u 1000 appuser
+RUN useradd -m -u 1000 appuser
 
 # Set the working directory
 WORKDIR /app
