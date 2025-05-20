@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -60,13 +61,18 @@ func (s *Service) PerformBackup() error {
 			return
 		}
 
-		// Set the output to the pipe writer
+		// Create a buffer to capture stderr
+		var stderr bytes.Buffer
+
+		// Set the output to the pipe writer and capture stderr
 		cmd.Stdout = pw
-		cmd.Stderr = nil // We'll handle errors through the command's Run method
+		cmd.Stderr = &stderr
 
 		// Run the command
 		if err := cmd.Run(); err != nil {
-			pw.CloseWithError(fmt.Errorf("database dump failed: %w", err))
+			errOutput := stderr.String()
+			fmt.Printf("Database dump error output: %s\n", errOutput)
+			pw.CloseWithError(fmt.Errorf("database dump failed: %w (stderr: %s)", err, errOutput))
 		}
 	}()
 
