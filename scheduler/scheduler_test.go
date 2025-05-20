@@ -20,7 +20,7 @@ func TestScheduler(t *testing.T) {
 	}
 
 	// Create a scheduler with a cron expression that runs every second
-	s := New("* * * * * *", backupFunc)
+	s := New("* * * * *", backupFunc)
 
 	// Start the scheduler
 	err := s.Start()
