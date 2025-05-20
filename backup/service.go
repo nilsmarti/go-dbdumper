@@ -97,7 +97,6 @@ func (s *Service) createMySQLDumpCmd() *exec.Cmd {
 		"--single-transaction",
 		"--quick",
 		"--lock-tables=false",
-		"--set-gtid-purged=OFF",
 		s.cfg.DBName,
 	)
 

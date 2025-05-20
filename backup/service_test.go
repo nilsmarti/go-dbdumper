@@ -40,7 +40,6 @@ func TestCreateMySQLDumpCmd(t *testing.T) {
 		"--single-transaction",
 		"--quick",
 		"--lock-tables=false",
-		"--set-gtid-purged=OFF",
 		"testdb",
 	}
 
