@@ -40,6 +40,7 @@ func TestCreateMySQLDumpCmd(t *testing.T) {
 		"--single-transaction",
 		"--quick",
 		"--lock-tables=false",
+		"--default-auth=mysql_native_password",
 		"testdb",
 	}
 

@@ -97,6 +97,7 @@ func (s *Service) createMySQLDumpCmd() *exec.Cmd {
 		"--single-transaction",
 		"--quick",
 		"--lock-tables=false",
+		"--default-auth=mysql_native_password", // Use native password authentication for MySQL 8+ compatibility
 		s.cfg.DBName,
 	)
 
