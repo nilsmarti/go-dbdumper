@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -22,8 +23,19 @@ type S3Client struct {
 
 // NewS3Client creates a new S3 client
 func NewS3Client(cfg *config.Config) (*S3Client, error) {
+	// Ensure the endpoint doesn't have paths or trailing slashes
+	endpoint := cfg.S3Endpoint
+	// Remove any protocol prefix if present
+	if idx := strings.Index(endpoint, "://"); idx != -1 {
+		endpoint = endpoint[idx+3:]
+	}
+	// Remove any path or trailing slash
+	if idx := strings.Index(endpoint, "/"); idx != -1 {
+		endpoint = endpoint[:idx]
+	}
+
 	// Initialize minio client
-	client, err := minio.New(cfg.S3Endpoint, &minio.Options{
+	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
 		Secure: cfg.S3UseSSL,
 		Region: cfg.S3Region,
