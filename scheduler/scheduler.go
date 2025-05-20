@@ -20,8 +20,8 @@ type Scheduler struct {
 
 // New creates a new scheduler
 func New(cronExpression string, backupFunc func() error) *Scheduler {
-	// Create a new cron scheduler with seconds field enabled
-	c := cron.New(cron.WithSeconds())
+	// Create a new cron scheduler with standard cron format (5 fields)
+	c := cron.New()
 
 	return &Scheduler{
 		cron:       c,
