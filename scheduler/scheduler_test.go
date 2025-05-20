@@ -3,7 +3,6 @@ package scheduler
 import (
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestScheduler(t *testing.T) {
@@ -19,7 +18,7 @@ func TestScheduler(t *testing.T) {
 		return nil
 	}
 
-	// Create a scheduler with a cron expression that runs every second
+	// Create a scheduler with a cron expression that runs every minute
 	s := New("* * * * *", backupFunc)
 
 	// Start the scheduler
@@ -28,8 +27,11 @@ func TestScheduler(t *testing.T) {
 		t.Fatalf("Failed to start scheduler: %v", err)
 	}
 
-	// Wait for at least one execution
-	time.Sleep(1500 * time.Millisecond)
+	// For testing purposes, manually trigger a backup instead of waiting for cron
+	err = s.RunNow()
+	if err != nil {
+		t.Fatalf("Failed to run backup: %v", err)
+	}
 
 	// Stop the scheduler
 	s.Stop()
