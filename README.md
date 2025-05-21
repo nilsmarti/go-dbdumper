@@ -128,7 +128,7 @@ docker run nilsmarti/go-dbdumper:latest backup-now
 
 ### Prerequisites
 
-- Go 1.20 or later
+- Go 1.23 or later
 - MySQL client (for MySQL backups)
 - PostgreSQL client (for PostgreSQL backups)
 
