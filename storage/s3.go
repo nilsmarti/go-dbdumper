@@ -15,10 +15,13 @@ import (
 
 // S3Client handles interactions with S3 compatible storage
 type S3Client struct {
-	client     *minio.Client
-	bucketName string
-	prefix     string
-	keepLast   int
+	client               *minio.Client
+	bucketName           string
+	prefix               string
+	keepLast             int
+	cleanupEnabled       bool
+	objectLockMode       string
+	objectLockRetainDays int
 }
 
 // NewS3Client creates a new S3 client
@@ -56,10 +59,13 @@ func NewS3Client(cfg *config.Config) (*S3Client, error) {
 	}
 
 	return &S3Client{
-		client:     client,
-		bucketName: cfg.S3Bucket,
-		prefix:     cfg.BackupPrefix,
-		keepLast:   cfg.KeepLast,
+		client:               client,
+		bucketName:           cfg.S3Bucket,
+		prefix:               cfg.BackupPrefix,
+		keepLast:             cfg.KeepLast,
+		cleanupEnabled:       cfg.CleanupEnabled,
+		objectLockMode:       cfg.ObjectLockMode,
+		objectLockRetainDays: cfg.ObjectLockRetainUntilDays,
 	}, nil
 }
 
@@ -80,17 +86,29 @@ func (s *S3Client) UploadBackup(ctx context.Context, reader io.Reader, dbName, d
 	}
 	objName := fmt.Sprintf("%s/%s-%s-%s%s", s.prefix, dbName, dbType, timestamp, suffix)
 
+	// Build upload options, including Object Lock retention if configured.
+	opts := minio.PutObjectOptions{ContentType: "application/octet-stream"}
+	if s.objectLockMode != "" {
+		retainUntil := time.Now().UTC().Add(time.Duration(s.objectLockRetainDays) * 24 * time.Hour)
+		opts.Mode = minio.RetentionMode(s.objectLockMode)
+		opts.RetainUntilDate = retainUntil
+		fmt.Printf("Applying Object Lock %s until %s\n", s.objectLockMode, retainUntil.Format(time.RFC3339))
+	}
+
 	// Upload the backup
-	_, err := s.client.PutObject(ctx, s.bucketName, objName, reader, -1,
-		minio.PutObjectOptions{ContentType: "application/octet-stream"})
+	_, err := s.client.PutObject(ctx, s.bucketName, objName, reader, -1, opts)
 	if err != nil {
 		return "", fmt.Errorf("failed to upload backup: %w", err)
 	}
 
-	// Clean up old backups
-	if err := s.cleanupOldBackups(ctx, dbName, dbType); err != nil {
-		// Just log the error but don't fail the backup
-		fmt.Printf("Warning: failed to cleanup old backups: %v\n", err)
+	// Clean up old backups (only if app-side cleanup is enabled; when Object
+	// Lock is in use, retention is enforced server-side and the app should not
+	// have delete permissions).
+	if s.cleanupEnabled {
+		if err := s.cleanupOldBackups(ctx, dbName, dbType); err != nil {
+			// Just log the error but don't fail the backup
+			fmt.Printf("Warning: failed to cleanup old backups: %v\n", err)
+		}
 	}
 
 	return objName, nil

@@ -139,6 +139,9 @@ func setBaseEnv(t *testing.T) {
 	os.Unsetenv("S3_USE_SSL")
 	os.Unsetenv("BACKUP_TIMEOUT")
 	os.Unsetenv("COMPRESSION_ENABLED")
+	os.Unsetenv("CLEANUP_ENABLED")
+	os.Unsetenv("OBJECT_LOCK_MODE")
+	os.Unsetenv("OBJECT_LOCK_RETAIN_UNTIL_DAYS")
 }
 
 // clearEncryptionEnv unsets all encryption-related env vars.
@@ -366,5 +369,137 @@ func TestLoadCompressionInvalid(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("Expected error for invalid COMPRESSION_ENABLED, got nil")
+	}
+}
+
+func TestLoadCleanupEnabledByDefault(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if !cfg.CleanupEnabled {
+		t.Error("Expected CleanupEnabled to be true by default")
+	}
+}
+
+func TestLoadCleanupDisabled(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("CLEANUP_ENABLED", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if cfg.CleanupEnabled {
+		t.Error("Expected CleanupEnabled to be false")
+	}
+}
+
+func TestLoadCleanupInvalid(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("CLEANUP_ENABLED", "not-a-bool")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error for invalid CLEANUP_ENABLED, got nil")
+	}
+}
+
+func TestLoadObjectLockGovernance(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("OBJECT_LOCK_MODE", "governance")
+	os.Setenv("OBJECT_LOCK_RETAIN_UNTIL_DAYS", "30")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if cfg.ObjectLockMode != "GOVERNANCE" {
+		t.Errorf("Expected ObjectLockMode 'GOVERNANCE', got %q", cfg.ObjectLockMode)
+	}
+	if cfg.ObjectLockRetainUntilDays != 30 {
+		t.Errorf("Expected ObjectLockRetainUntilDays 30, got %d", cfg.ObjectLockRetainUntilDays)
+	}
+}
+
+func TestLoadObjectLockCompliance(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("OBJECT_LOCK_MODE", "COMPLIANCE")
+	os.Setenv("OBJECT_LOCK_RETAIN_UNTIL_DAYS", "90")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if cfg.ObjectLockMode != "COMPLIANCE" {
+		t.Errorf("Expected ObjectLockMode 'COMPLIANCE', got %q", cfg.ObjectLockMode)
+	}
+}
+
+func TestLoadObjectLockInvalidMode(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("OBJECT_LOCK_MODE", "INVALID")
+	os.Setenv("OBJECT_LOCK_RETAIN_UNTIL_DAYS", "30")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error for invalid OBJECT_LOCK_MODE, got nil")
+	}
+}
+
+func TestLoadObjectLockModeWithoutDays(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("OBJECT_LOCK_MODE", "GOVERNANCE")
+	// No OBJECT_LOCK_RETAIN_UNTIL_DAYS set
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error when OBJECT_LOCK_MODE set without retain days, got nil")
+	}
+}
+
+func TestLoadObjectLockInvalidDays(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("OBJECT_LOCK_MODE", "GOVERNANCE")
+	os.Setenv("OBJECT_LOCK_RETAIN_UNTIL_DAYS", "0")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error for zero OBJECT_LOCK_RETAIN_UNTIL_DAYS, got nil")
+	}
+}
+
+func TestLoadObjectLockNotSetByDefault(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if cfg.ObjectLockMode != "" {
+		t.Errorf("Expected empty ObjectLockMode by default, got %q", cfg.ObjectLockMode)
+	}
+	if cfg.ObjectLockRetainUntilDays != 0 {
+		t.Errorf("Expected 0 ObjectLockRetainUntilDays by default, got %d", cfg.ObjectLockRetainUntilDays)
 	}
 }
