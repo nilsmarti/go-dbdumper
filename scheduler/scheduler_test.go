@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"sync"
 	"testing"
 )
@@ -11,7 +12,7 @@ func TestScheduler(t *testing.T) {
 	var mu sync.Mutex
 
 	// Create a test backup function
-	backupFunc := func() error {
+	backupFunc := func(ctx context.Context) error {
 		mu.Lock()
 		defer mu.Unlock()
 		counter++
@@ -22,13 +23,13 @@ func TestScheduler(t *testing.T) {
 	s := New("* * * * *", backupFunc)
 
 	// Start the scheduler
-	err := s.Start()
+	err := s.Start(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to start scheduler: %v", err)
 	}
 
 	// For testing purposes, manually trigger a backup instead of waiting for cron
-	err = s.RunNow()
+	err = s.RunNow(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to run backup: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestRunNow(t *testing.T) {
 	var counter int
 
 	// Create a test backup function
-	backupFunc := func() error {
+	backupFunc := func(ctx context.Context) error {
 		counter++
 		return nil
 	}
@@ -58,7 +59,7 @@ func TestRunNow(t *testing.T) {
 	s := New("0 0 31 2 *", backupFunc) // February 31st (never happens)
 
 	// Run the backup immediately
-	err := s.RunNow()
+	err := s.RunNow(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to run backup: %v", err)
 	}
