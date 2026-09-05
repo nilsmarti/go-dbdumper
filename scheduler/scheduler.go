@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,16 +12,19 @@ import (
 
 // Scheduler handles scheduling of backup tasks
 type Scheduler struct {
-	cron        *cron.Cron
-	expression  string
-	backupFunc  func() error
-	entryID     cron.EntryID
-	running     bool
-	mutex       sync.Mutex
+	cron       *cron.Cron
+	expression string
+	backupFunc func(context.Context) error
+	entryID    cron.EntryID
+	running    bool
+	mutex      sync.Mutex
+	ctx        context.Context
 }
 
-// New creates a new scheduler
-func New(cronExpression string, backupFunc func() error) *Scheduler {
+// New creates a new scheduler. The backup function receives the context passed
+// to Start, so cancelling that context aborts in-flight backups triggered by
+// the cron schedule.
+func New(cronExpression string, backupFunc func(context.Context) error) *Scheduler {
 	// Create a new cron scheduler with standard cron format (5 fields)
 	c := cron.New()
 
@@ -31,8 +36,10 @@ func New(cronExpression string, backupFunc func() error) *Scheduler {
 	}
 }
 
-// Start starts the scheduler
-func (s *Scheduler) Start() error {
+// Start starts the scheduler. The provided context is propagated to backup
+// runs triggered by the cron schedule; cancelling it aborts any in-flight
+// backup.
+func (s *Scheduler) Start(ctx context.Context) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -40,12 +47,18 @@ func (s *Scheduler) Start() error {
 		return nil // Already running
 	}
 
+	s.ctx = ctx
+
 	// Add the backup function to the cron scheduler
 	entryID, err := s.cron.AddFunc(s.expression, func() {
 		fmt.Printf("Scheduled backup triggered at %s\n", time.Now().Format(time.RFC3339))
-		
+
 		// Execute the backup function
-		if err := s.backupFunc(); err != nil {
+		if err := s.backupFunc(s.ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				fmt.Printf("Scheduled backup cancelled at %s\n", time.Now().Format(time.RFC3339))
+				return
+			}
 			fmt.Printf("Scheduled backup failed: %v\n", err)
 		} else {
 			fmt.Printf("Scheduled backup completed successfully at %s\n", time.Now().Format(time.RFC3339))
@@ -64,7 +77,8 @@ func (s *Scheduler) Start() error {
 	return nil
 }
 
-// Stop stops the scheduler
+// Stop stops the scheduler. It does not cancel in-flight backups; cancel the
+// context passed to Start for that.
 func (s *Scheduler) Stop() {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -76,17 +90,22 @@ func (s *Scheduler) Stop() {
 	// Remove the scheduled job
 	s.cron.Remove(s.entryID)
 
-	// Stop the cron scheduler
-	s.cron.Stop()
+	// Stop the cron scheduler. cron.Stop returns a context that is done when
+	// in-flight jobs complete; we wait for it so shutdown is orderly.
+	<-s.cron.Stop().Done()
+
 	s.running = false
 }
 
-// RunNow executes a backup immediately
-func (s *Scheduler) RunNow() error {
+// RunNow executes a backup immediately using the provided context.
+func (s *Scheduler) RunNow(ctx context.Context) error {
 	fmt.Printf("Manual backup triggered at %s\n", time.Now().Format(time.RFC3339))
-	
+
 	// Execute the backup function
-	if err := s.backupFunc(); err != nil {
+	if err := s.backupFunc(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return fmt.Errorf("manual backup cancelled: %w", err)
+		}
 		return fmt.Errorf("manual backup failed: %w", err)
 	}
 

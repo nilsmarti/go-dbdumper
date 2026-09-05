@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/nilsmarti/go-dbdumper/backup"
 	"github.com/nilsmarti/go-dbdumper/config"
@@ -37,11 +40,17 @@ var runCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// Set up a context that is cancelled on SIGINT/SIGTERM so that
+		// in-flight backups are aborted cleanly and the scheduler shuts down
+		// orderly instead of being killed mid-stream.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+
 		// Initialize scheduler
 		scheduler := scheduler.New(cfg.CronExpression, backupSvc.PerformBackup)
 
 		// Start the scheduler
-		if err := scheduler.Start(); err != nil {
+		if err := scheduler.Start(ctx); err != nil {
 			fmt.Printf("Error starting scheduler: %v\n", err)
 			os.Exit(1)
 		}
@@ -50,8 +59,9 @@ var runCmd = &cobra.Command{
 		fmt.Printf("DB Dumper started with cron expression: %s\n", cfg.CronExpression)
 		fmt.Println("Press Ctrl+C to exit.")
 
-		// Wait for interrupt signal
-		select {}
+		// Wait for an interrupt signal
+		<-ctx.Done()
+		fmt.Println("Shutdown signal received, stopping...")
 	},
 }
 
@@ -74,8 +84,12 @@ var backupNowCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// Allow Ctrl+C to abort a manual backup.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+
 		// Perform backup
-		if err := backupSvc.PerformBackup(); err != nil {
+		if err := backupSvc.PerformBackup(ctx); err != nil {
 			fmt.Printf("Error performing backup: %v\n", err)
 			os.Exit(1)
 		}
