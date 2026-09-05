@@ -63,13 +63,20 @@ func NewS3Client(cfg *config.Config) (*S3Client, error) {
 	}, nil
 }
 
-// UploadBackup uploads a backup to S3
-func (s *S3Client) UploadBackup(ctx context.Context, reader io.Reader, dbName, dbType string) (string, error) {
+// UploadBackup uploads a backup to S3. If encrypted is true, the object name
+// uses the .sql.age suffix to distinguish encrypted backups from legacy
+// plaintext ones.
+func (s *S3Client) UploadBackup(ctx context.Context, reader io.Reader, dbName, dbType string, encrypted bool) (string, error) {
 	// Create a timestamp for the backup filename
 	timestamp := time.Now().UTC().Format("20060102-150405")
 
 	// Create the object name with format: prefix/dbname-dbtype-timestamp.sql
-	objName := fmt.Sprintf("%s/%s-%s-%s.sql", s.prefix, dbName, dbType, timestamp)
+	// (or .sql.age for encrypted backups)
+	suffix := ".sql"
+	if encrypted {
+		suffix = ".sql.age"
+	}
+	objName := fmt.Sprintf("%s/%s-%s-%s%s", s.prefix, dbName, dbType, timestamp, suffix)
 
 	// Upload the backup
 	_, err := s.client.PutObject(ctx, s.bucketName, objName, reader, -1,
