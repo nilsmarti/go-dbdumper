@@ -2,6 +2,7 @@ package backup
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -40,7 +41,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 // upload; cancelling it aborts an in-flight backup cleanly (the multipart
 // upload is aborted by minio, leaving no partial object in S3).
 func (s *Service) PerformBackup(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.BackupTimeout)
 	defer cancel()
 
 	fmt.Printf("Starting backup of %s database %s at %s\n",
@@ -93,10 +94,15 @@ func (s *Service) PerformBackup(ctx context.Context) error {
 		cmd.Stderr = &stderr
 
 		// Determine where the dump command writes its plaintext stdout.
-		// If encryption is enabled, an age encryptor is inserted between the
-		// dump command and the pipe writer so that only ciphertext reaches S3.
+		// The pipe chain (from dump stdout to S3) is built in reverse order:
+		//   dump stdout → [gzip] → [age encrypt] → pipe writer → S3
+		// Compression happens before encryption because age does not compress,
+		// and encrypted data is incompressible.
 		var dumpOutput io.Writer = pw
 		var encWriter io.WriteCloser
+		var gzWriter io.WriteCloser
+
+		// Insert age encryptor (if enabled) — writes ciphertext to the pipe.
 		if s.cfg.EncryptionEnabled {
 			recipients, err := encryption.ParseRecipients(s.cfg.EncryptionRecipients...)
 			if err != nil {
@@ -111,13 +117,27 @@ func (s *Service) PerformBackup(ctx context.Context) error {
 			dumpOutput = encWriter
 		}
 
+		// Insert gzip compressoer (if enabled) — writes compressed data to the
+		// next stage (age encryptor or pipe writer).
+		if s.cfg.CompressionEnabled {
+			gzWriter = gzip.NewWriter(dumpOutput)
+			dumpOutput = gzWriter
+		}
+
 		cmd.Stdout = dumpOutput
 
 		// Run the command
 		runErr := cmd.Run()
 
-		// Close the encryptor first (if present) to flush the final encrypted
-		// chunk before closing the pipe writer.
+		// Close writers in pipeline order (innermost first) to flush all
+		// buffered data before closing the pipe writer.
+		if gzWriter != nil {
+			if err := gzWriter.Close(); err != nil {
+				if runErr == nil {
+					runErr = fmt.Errorf("failed to finalize gzip compression: %w", err)
+				}
+			}
+		}
 		if encWriter != nil {
 			if err := encWriter.Close(); err != nil {
 				if runErr == nil {
@@ -134,7 +154,7 @@ func (s *Service) PerformBackup(ctx context.Context) error {
 	}()
 
 	// Upload the backup to S3
-	objName, uploadErr := s.s3Client.UploadBackup(ctx, pr, s.cfg.DBName, string(s.cfg.DBType), s.cfg.EncryptionEnabled)
+	objName, uploadErr := s.s3Client.UploadBackup(ctx, pr, s.cfg.DBName, string(s.cfg.DBType), s.cfg.CompressionEnabled, s.cfg.EncryptionEnabled)
 	// Wait for the dump goroutine to finish before returning so the temp
 	// credentials file is not removed while the command might still read it.
 	wg.Wait()

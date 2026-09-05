@@ -44,6 +44,8 @@ The application is configured entirely through environment variables:
 | `CRON_EXPRESSION` | Cron expression for backup schedule | `0 0 * * *` (daily at midnight) |
 | `KEEP_LAST` | Number of backups to keep | `5` |
 | `BACKUP_PREFIX` | Prefix for backup files in S3 | `backup` |
+| `BACKUP_TIMEOUT` | Timeout for a single backup or restore operation (Go duration format: `30m`, `1h`, `45m30s`) | `30m` |
+| `COMPRESSION_ENABLED` | Gzip-compress backups before encryption/upload | `true` |
 
 ### Encryption Configuration
 
@@ -55,7 +57,18 @@ Backups can be asymmetrically encrypted client-side using [age](https://age-encr
 | `ENCRYPTION_PUBLIC_KEY` | Age recipient key (`age1...`), mutually exclusive with `ENCRYPTION_PUBLIC_KEY_FILE` | *required if enabled* |
 | `ENCRYPTION_PUBLIC_KEY_FILE` | Path to a file containing one or more age recipients (one per line, `#` comments allowed) | *required if enabled* |
 
-When encryption is enabled, backup objects use the `.sql.age` suffix instead of `.sql`.
+### Backup File Naming
+
+The object suffix reflects the transformations applied, so the restore command can automatically detect how to process each backup:
+
+| Suffix | Description |
+|--------|-------------|
+| `.sql` | Plain SQL dump (legacy, no compression or encryption) |
+| `.sql.gz` | Gzip-compressed SQL dump |
+| `.sql.age` | Encrypted SQL dump (no compression) |
+| `.sql.gz.age` | Gzip-compressed + encrypted SQL dump |
+
+Compression is applied **before** encryption (age does not compress, and encrypted data is incompressible). The restore command automatically detects the suffixes and reverses the transformations in the correct order (decrypt first, then decompress).
 
 To generate a key pair:
 

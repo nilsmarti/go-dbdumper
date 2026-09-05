@@ -63,18 +63,20 @@ func NewS3Client(cfg *config.Config) (*S3Client, error) {
 	}, nil
 }
 
-// UploadBackup uploads a backup to S3. If encrypted is true, the object name
-// uses the .sql.age suffix to distinguish encrypted backups from legacy
-// plaintext ones.
-func (s *S3Client) UploadBackup(ctx context.Context, reader io.Reader, dbName, dbType string, encrypted bool) (string, error) {
+// UploadBackup uploads a backup to S3. The object name suffix reflects the
+// transformations applied: .sql (plain), .sql.gz (compressed),
+// .sql.age (encrypted), .sql.gz.age (compressed + encrypted).
+func (s *S3Client) UploadBackup(ctx context.Context, reader io.Reader, dbName, dbType string, compressed, encrypted bool) (string, error) {
 	// Create a timestamp for the backup filename
 	timestamp := time.Now().UTC().Format("20060102-150405")
 
-	// Create the object name with format: prefix/dbname-dbtype-timestamp.sql
-	// (or .sql.age for encrypted backups)
+	// Build the suffix based on transformations applied.
 	suffix := ".sql"
+	if compressed {
+		suffix = ".sql.gz"
+	}
 	if encrypted {
-		suffix = ".sql.age"
+		suffix += ".age"
 	}
 	objName := fmt.Sprintf("%s/%s-%s-%s%s", s.prefix, dbName, dbType, timestamp, suffix)
 

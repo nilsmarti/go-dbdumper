@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // DatabaseType represents the type of database
@@ -40,12 +41,16 @@ type Config struct {
 	CronExpression string
 	KeepLast       int
 	BackupPrefix   string
+	BackupTimeout  time.Duration // timeout for a single backup/restore operation
 
 	// Encryption configuration
 	EncryptionEnabled       bool
 	EncryptionPublicKey     string   // age recipient key (age1...) — mutually exclusive with EncryptionPublicKeyFile
 	EncryptionPublicKeyFile string   // path to a file containing one or more age recipients
 	EncryptionRecipients    []string // parsed recipient keys, ready for use
+
+	// Compression configuration
+	CompressionEnabled bool // gzip-compress backups before encryption/upload
 
 	// Decryption configuration (restore only). The private key (age identity)
 	// should only be present on a dedicated restore host, never on the app
@@ -153,6 +158,31 @@ func Load() (*Config, error) {
 		backupPrefix = "backup" // Default prefix
 	}
 
+	// --- Backup timeout ---
+	backupTimeoutStr := os.Getenv("BACKUP_TIMEOUT")
+	backupTimeout := 30 * time.Minute // Default to 30 minutes
+	if backupTimeoutStr != "" {
+		var err error
+		backupTimeout, err = time.ParseDuration(backupTimeoutStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid BACKUP_TIMEOUT value: %v (expected duration like '30m', '1h', '45m30s')", err)
+		}
+		if backupTimeout <= 0 {
+			return nil, errors.New("BACKUP_TIMEOUT must be a positive duration")
+		}
+	}
+
+	// --- Compression configuration ---
+	compressionEnabledStr := os.Getenv("COMPRESSION_ENABLED")
+	compressionEnabled := true // Default to true — SQL dumps are highly compressible
+	if compressionEnabledStr != "" {
+		var err error
+		compressionEnabled, err = strconv.ParseBool(compressionEnabledStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid COMPRESSION_ENABLED value: %v", err)
+		}
+	}
+
 	// --- Encryption configuration ---
 	encryptionEnabledStr := os.Getenv("ENCRYPTION_ENABLED")
 	encryptionEnabled := false
@@ -219,6 +249,8 @@ func Load() (*Config, error) {
 		CronExpression:           cronExpression,
 		KeepLast:                 keepLast,
 		BackupPrefix:             backupPrefix,
+		BackupTimeout:            backupTimeout,
+		CompressionEnabled:       compressionEnabled,
 		EncryptionEnabled:        encryptionEnabled,
 		EncryptionPublicKey:      encryptionPublicKey,
 		EncryptionPublicKeyFile:  encryptionPublicKeyFile,
