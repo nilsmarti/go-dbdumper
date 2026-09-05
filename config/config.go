@@ -46,6 +46,12 @@ type Config struct {
 	EncryptionPublicKey     string   // age recipient key (age1...) — mutually exclusive with EncryptionPublicKeyFile
 	EncryptionPublicKeyFile string   // path to a file containing one or more age recipients
 	EncryptionRecipients    []string // parsed recipient keys, ready for use
+
+	// Decryption configuration (restore only). The private key (age identity)
+	// should only be present on a dedicated restore host, never on the app
+	// server that creates backups.
+	DecryptionPrivateKey     string // age identity (AGE-SECRET-KEY-1...) — mutually exclusive with DecryptionPrivateKeyFile
+	DecryptionPrivateKeyFile string // path to a file containing an age identity
 }
 
 // Load loads configuration from environment variables
@@ -190,26 +196,35 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// --- Decryption configuration (restore only) ---
+	decryptionPrivateKey := os.Getenv("DECRYPTION_PRIVATE_KEY")
+	decryptionPrivateKeyFile := os.Getenv("DECRYPTION_PRIVATE_KEY_FILE")
+	if decryptionPrivateKey != "" && decryptionPrivateKeyFile != "" {
+		return nil, errors.New("DECRYPTION_PRIVATE_KEY and DECRYPTION_PRIVATE_KEY_FILE are mutually exclusive")
+	}
+
 	return &Config{
-		DBType:                  DatabaseType(dbType),
-		DBHost:                  dbHost,
-		DBPort:                  dbPort,
-		DBName:                  dbName,
-		DBUser:                  dbUser,
-		DBPassword:              dbPassword,
-		S3Endpoint:              s3Endpoint,
-		S3Region:                s3Region,
-		S3Bucket:                s3Bucket,
-		S3AccessKey:             s3AccessKey,
-		S3SecretKey:             s3SecretKey,
-		S3UseSSL:                s3UseSSL,
-		CronExpression:          cronExpression,
-		KeepLast:                keepLast,
-		BackupPrefix:            backupPrefix,
-		EncryptionEnabled:       encryptionEnabled,
-		EncryptionPublicKey:     encryptionPublicKey,
-		EncryptionPublicKeyFile: encryptionPublicKeyFile,
-		EncryptionRecipients:    encryptionRecipients,
+		DBType:                   DatabaseType(dbType),
+		DBHost:                   dbHost,
+		DBPort:                   dbPort,
+		DBName:                   dbName,
+		DBUser:                   dbUser,
+		DBPassword:               dbPassword,
+		S3Endpoint:               s3Endpoint,
+		S3Region:                 s3Region,
+		S3Bucket:                 s3Bucket,
+		S3AccessKey:              s3AccessKey,
+		S3SecretKey:              s3SecretKey,
+		S3UseSSL:                 s3UseSSL,
+		CronExpression:           cronExpression,
+		KeepLast:                 keepLast,
+		BackupPrefix:             backupPrefix,
+		EncryptionEnabled:        encryptionEnabled,
+		EncryptionPublicKey:      encryptionPublicKey,
+		EncryptionPublicKeyFile:  encryptionPublicKeyFile,
+		EncryptionRecipients:     encryptionRecipients,
+		DecryptionPrivateKey:     decryptionPrivateKey,
+		DecryptionPrivateKeyFile: decryptionPrivateKeyFile,
 	}, nil
 }
 

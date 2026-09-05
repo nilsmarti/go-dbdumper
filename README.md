@@ -135,6 +135,8 @@ The application provides the following commands:
 
 - `run`: Run the backup scheduler (default)
 - `backup-now`: Run a backup immediately
+- `restore`: Restore a backup from S3 to a database
+- `list-backups`: List available backups in S3
 
 Example:
 
@@ -144,6 +146,46 @@ docker run nilsmarti/go-dbdumper:latest run
 
 # Run a backup immediately
 docker run nilsmarti/go-dbdumper:latest backup-now
+
+# List available backups
+docker run nilsmarti/go-dbdumper:latest list-backups
+
+# Restore the latest backup
+docker run nilsmarti/go-dbdumper:latest restore
+
+# Restore a specific backup
+docker run nilsmarti/go-dbdumper:latest restore --object backup/mydb-mysql-20260101-120000.sql.age
+
+# Dry-run: decrypt and print to stdout without modifying the database
+docker run nilsmarti/go-dbdumper:latest restore --dry-run
+```
+
+### Restore Configuration
+
+The `restore` command is intended to run on a **dedicated restore host** that has the age private key — never on the app server that creates backups. It uses the same DB and S3 env vars as backup, plus the decryption key:
+
+| Variable | Description | Default |
+|----------|-------------|--------|
+| `DECRYPTION_PRIVATE_KEY` | Age identity (`AGE-SECRET-KEY-1...`), mutually exclusive with `DECRYPTION_PRIVATE_KEY_FILE` | *required for encrypted backups* |
+| `DECRYPTION_PRIVATE_KEY_FILE` | Path to a file containing an age identity | *alternative to above* |
+
+The restore command automatically detects whether a backup is encrypted based on the `.sql.age` suffix and decrypts it if needed. For unencrypted backups (`.sql`), no decryption key is required.
+
+```bash
+# Restore on a dedicated host with the private key
+docker run -i --rm \
+  -e DB_TYPE=mysql \
+  -e DB_HOST=target-db \
+  -e DB_NAME=mydb \
+  -e DB_USER=dbuser \
+  -e DB_PASSWORD=dbpassword \
+  -e S3_ENDPOINT=your-s3-endpoint \
+  -e S3_BUCKET=backups \
+  -e S3_ACCESS_KEY=your-access-key \
+  -e S3_SECRET_KEY=your-secret-key \
+  -e DECRYPTION_PRIVATE_KEY_FILE=/run/secrets/age_identity \
+  -v /path/to/key.txt:/run/secrets/age_identity:ro \
+  nilsmarti/go-dbdumper:latest restore
 ```
 
 ## Building from Source

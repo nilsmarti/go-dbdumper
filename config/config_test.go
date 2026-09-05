@@ -218,3 +218,55 @@ func TestLoadEncryptionInvalidEnabled(t *testing.T) {
 		t.Fatal("Expected error for invalid ENCRYPTION_ENABLED value, got nil")
 	}
 }
+
+// clearDecryptionEnv unsets all decryption-related env vars.
+func clearDecryptionEnv() {
+	os.Unsetenv("DECRYPTION_PRIVATE_KEY")
+	os.Unsetenv("DECRYPTION_PRIVATE_KEY_FILE")
+}
+
+func TestLoadDecryptionBothKeySources(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("DECRYPTION_PRIVATE_KEY", "AGE-SECRET-KEY-1dummy")
+	os.Setenv("DECRYPTION_PRIVATE_KEY_FILE", "/tmp/dummy")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error when both decryption key sources are set, got nil")
+	}
+}
+
+func TestLoadDecryptionNoneRequired(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+
+	// Decryption keys are optional — only needed for restore, not for backup.
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config without decryption keys: %v", err)
+	}
+	if cfg.DecryptionPrivateKey != "" {
+		t.Error("Expected DecryptionPrivateKey to be empty")
+	}
+	if cfg.DecryptionPrivateKeyFile != "" {
+		t.Error("Expected DecryptionPrivateKeyFile to be empty")
+	}
+}
+
+func TestLoadDecryptionKeySet(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("DECRYPTION_PRIVATE_KEY", "AGE-SECRET-KEY-1dummy")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config with decryption key: %v", err)
+	}
+	if cfg.DecryptionPrivateKey != "AGE-SECRET-KEY-1dummy" {
+		t.Errorf("Expected DecryptionPrivateKey 'AGE-SECRET-KEY-1dummy', got %q", cfg.DecryptionPrivateKey)
+	}
+}
