@@ -43,6 +43,20 @@ type Config struct {
 	BackupPrefix   string
 	BackupTimeout  time.Duration // timeout for a single backup/restore operation
 
+	// Retention configuration
+	// CleanupEnabled controls whether the app deletes old backups itself. When
+	// false, retention is expected to be enforced server-side via S3 Object
+	// Lock retention + lifecycle rules, and the app's S3 credentials should
+	// not have DeleteObject permission.
+	CleanupEnabled bool
+	// ObjectLockMode, if non-empty, sets a per-object retention mode on
+	// upload. Valid values: "GOVERNANCE" or "COMPLIANCE". Requires the bucket
+	// to have Object Lock enabled.
+	ObjectLockMode string
+	// ObjectLockRetainUntilDays is the number of days from upload to retain
+	// each object under Object Lock. Only used when ObjectLockMode is set.
+	ObjectLockRetainUntilDays int
+
 	// Encryption configuration
 	EncryptionEnabled       bool
 	EncryptionPublicKey     string   // age recipient key (age1...) — mutually exclusive with EncryptionPublicKeyFile
@@ -183,6 +197,40 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// --- Retention configuration ---
+	cleanupEnabledStr := os.Getenv("CLEANUP_ENABLED")
+	cleanupEnabled := true // Default to true for backward compatibility
+	if cleanupEnabledStr != "" {
+		var err error
+		cleanupEnabled, err = strconv.ParseBool(cleanupEnabledStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CLEANUP_ENABLED value: %v", err)
+		}
+	}
+
+	objectLockMode := strings.ToUpper(os.Getenv("OBJECT_LOCK_MODE"))
+	if objectLockMode != "" && objectLockMode != "GOVERNANCE" && objectLockMode != "COMPLIANCE" {
+		return nil, fmt.Errorf("invalid OBJECT_LOCK_MODE: %s, must be 'GOVERNANCE' or 'COMPLIANCE'", objectLockMode)
+	}
+
+	objectLockRetainUntilDays := 0
+	objectLockRetainStr := os.Getenv("OBJECT_LOCK_RETAIN_UNTIL_DAYS")
+	if objectLockRetainStr != "" {
+		var err error
+		objectLockRetainUntilDays, err = strconv.Atoi(objectLockRetainStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid OBJECT_LOCK_RETAIN_UNTIL_DAYS value: %v", err)
+		}
+		if objectLockRetainUntilDays < 1 {
+			return nil, errors.New("OBJECT_LOCK_RETAIN_UNTIL_DAYS must be at least 1")
+		}
+	}
+
+	// Object Lock mode requires a retention period.
+	if objectLockMode != "" && objectLockRetainUntilDays < 1 {
+		return nil, errors.New("OBJECT_LOCK_MODE is set but OBJECT_LOCK_RETAIN_UNTIL_DAYS is not configured (must be >= 1)")
+	}
+
 	// --- Encryption configuration ---
 	encryptionEnabledStr := os.Getenv("ENCRYPTION_ENABLED")
 	encryptionEnabled := false
@@ -234,29 +282,32 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		DBType:                   DatabaseType(dbType),
-		DBHost:                   dbHost,
-		DBPort:                   dbPort,
-		DBName:                   dbName,
-		DBUser:                   dbUser,
-		DBPassword:               dbPassword,
-		S3Endpoint:               s3Endpoint,
-		S3Region:                 s3Region,
-		S3Bucket:                 s3Bucket,
-		S3AccessKey:              s3AccessKey,
-		S3SecretKey:              s3SecretKey,
-		S3UseSSL:                 s3UseSSL,
-		CronExpression:           cronExpression,
-		KeepLast:                 keepLast,
-		BackupPrefix:             backupPrefix,
-		BackupTimeout:            backupTimeout,
-		CompressionEnabled:       compressionEnabled,
-		EncryptionEnabled:        encryptionEnabled,
-		EncryptionPublicKey:      encryptionPublicKey,
-		EncryptionPublicKeyFile:  encryptionPublicKeyFile,
-		EncryptionRecipients:     encryptionRecipients,
-		DecryptionPrivateKey:     decryptionPrivateKey,
-		DecryptionPrivateKeyFile: decryptionPrivateKeyFile,
+		DBType:                    DatabaseType(dbType),
+		DBHost:                    dbHost,
+		DBPort:                    dbPort,
+		DBName:                    dbName,
+		DBUser:                    dbUser,
+		DBPassword:                dbPassword,
+		S3Endpoint:                s3Endpoint,
+		S3Region:                  s3Region,
+		S3Bucket:                  s3Bucket,
+		S3AccessKey:               s3AccessKey,
+		S3SecretKey:               s3SecretKey,
+		S3UseSSL:                  s3UseSSL,
+		CronExpression:            cronExpression,
+		KeepLast:                  keepLast,
+		BackupPrefix:              backupPrefix,
+		BackupTimeout:             backupTimeout,
+		CleanupEnabled:            cleanupEnabled,
+		ObjectLockMode:            objectLockMode,
+		ObjectLockRetainUntilDays: objectLockRetainUntilDays,
+		CompressionEnabled:        compressionEnabled,
+		EncryptionEnabled:         encryptionEnabled,
+		EncryptionPublicKey:       encryptionPublicKey,
+		EncryptionPublicKeyFile:   encryptionPublicKeyFile,
+		EncryptionRecipients:      encryptionRecipients,
+		DecryptionPrivateKey:      decryptionPrivateKey,
+		DecryptionPrivateKeyFile:  decryptionPrivateKeyFile,
 	}, nil
 }
 

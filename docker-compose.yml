@@ -27,6 +27,14 @@ services:
       - BACKUP_TIMEOUT=30m # Timeout per backup/restore operation
       - COMPRESSION_ENABLED=true # Gzip-compress backups before encryption
 
+      # Retention configuration
+      # When using Object Lock, set CLEANUP_ENABLED=false and configure
+      # retention server-side. The app's IAM policy should not grant
+      # s3:DeleteObject in that case.
+      - CLEANUP_ENABLED=true
+      # - OBJECT_LOCK_MODE=COMPLIANCE # or GOVERNANCE
+      # - OBJECT_LOCK_RETAIN_UNTIL_DAYS=365
+
       # Encryption configuration (optional, enable for encrypted backups)
       # Generate a key pair with: age-keygen -o key.txt
       # Put the age1... public key here; keep the private key offline.

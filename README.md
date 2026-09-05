@@ -46,6 +46,9 @@ The application is configured entirely through environment variables:
 | `BACKUP_PREFIX` | Prefix for backup files in S3 | `backup` |
 | `BACKUP_TIMEOUT` | Timeout for a single backup or restore operation (Go duration format: `30m`, `1h`, `45m30s`) | `30m` |
 | `COMPRESSION_ENABLED` | Gzip-compress backups before encryption/upload | `true` |
+| `CLEANUP_ENABLED` | Delete old backups beyond `KEEP_LAST` from the app. Set to `false` when using Object Lock (retention enforced server-side). | `true` |
+| `OBJECT_LOCK_MODE` | S3 Object Lock retention mode: `GOVERNANCE` or `COMPLIANCE`. Requires Object Lock enabled on the bucket. | *disabled* |
+| `OBJECT_LOCK_RETAIN_UNTIL_DAYS` | Days to retain each object under Object Lock (from upload time). Required if `OBJECT_LOCK_MODE` is set. | *required if Object Lock enabled* |
 
 ### Encryption Configuration
 
@@ -200,6 +203,110 @@ docker run -i --rm \
   -v /path/to/key.txt:/run/secrets/age_identity:ro \
   nilsmarti/go-dbdumper:latest restore
 ```
+
+## Security Hardening
+
+For workloads handling sensitive PII (e.g., Swiss AHV/SS numbers, patient data), the following layered defenses are recommended. Encryption alone protects backup *confidentiality* but does not prevent a compromised app server from *tampering with the backup set* — that requires immutability.
+
+### 1. Client-side encryption (age)
+
+Already covered above. The app server holds only the public key and cannot decrypt past backups.
+
+### 2. S3 Object Lock (WORM immutability)
+
+Object Lock prevents objects from being deleted or overwritten for a configured retention period, even by the S3 credentials that created them. This means a compromised app server cannot delete or replace existing backups.
+
+**Bucket setup (AWS S3):**
+1. Create a new bucket with Object Lock enabled (cannot be added to existing buckets).
+2. Enable versioning (required for Object Lock).
+3. Configure a default retention mode and period at the bucket level, or set per-object retention on upload (this tool does the latter via `OBJECT_LOCK_MODE` and `OBJECT_LOCK_RETAIN_UNTIL_DAYS`).
+
+**Two retention modes:**
+- `GOVERNANCE` — privileged users (with `s3:BypassGovernanceRetention` permission) can bypass or shorten retention. Good for operational flexibility.
+- `COMPLIANCE` — no one, including the root account, can shorten retention until it expires. Required for regulatory compliance (e.g., financial/medical records).
+
+**With this tool:**
+```bash
+-e CLEANUP_ENABLED=false \
+-e OBJECT_LOCK_MODE=COMPLIANCE \
+-e OBJECT_LOCK_RETAIN_UNTIL_DAYS=365
+```
+
+Set `CLEANUP_ENABLED=false` because the app should not have delete permissions — retention is enforced server-side.
+
+### 3. Least-privilege IAM
+
+The app server's S3 credentials should have the minimum permissions needed. Use separate credentials for backup and restore:
+
+**App server (backup only — no delete):**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": [
+        "arn:aws:s3:::your-backup-bucket",
+        "arn:aws:s3:::your-backup-bucket/*"
+      ]
+    }
+  ]
+}
+```
+
+Do **not** grant `s3:DeleteObject` to the app server. When Object Lock is enabled, the app cannot delete objects even if it tries — but defense in depth means not granting the permission in the first place.
+
+If using Object Lock in `GOVERNANCE` mode, also deny `s3:BypassGovernanceRetention`:
+```json
+{
+  "Effect": "Deny",
+  "Action": "s3:BypassGovernanceRetention",
+  "Resource": "arn:aws:s3:::your-backup-bucket/*"
+}
+```
+
+**Restore host (read + delete for cleanup):**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::your-backup-bucket",
+        "arn:aws:s3:::your-backup-bucket/*"
+      ]
+    }
+  ]
+}
+```
+
+### 4. SSE-KMS (server-side encryption, defense in depth)
+
+In addition to client-side age encryption, enable SSE-KMS on the bucket. This adds a second layer of encryption at rest with a KMS key you control. Even if someone gains physical access to the S3 storage, the data is encrypted with your KMS key. The age encryption and SSE-KMS are independent — both must be compromised to read the data.
+
+### Summary of defense layers
+
+| Layer | Protects against | Config |
+|-------|-----------------|--------|
+| Client-side age encryption | S3/storage compromise, rogue storage admin | `ENCRYPTION_ENABLED=true` |
+| TLS to S3 | Network eavesdropping | `S3_USE_SSL=true` (default) |
+| S3 Object Lock | App server compromise (can't delete/overwrite backups) | `OBJECT_LOCK_MODE=COMPLIANCE` |
+| Least-privilege IAM | App server compromise (no delete permission) | IAM policy without `s3:DeleteObject` |
+| SSE-KMS | Physical storage access | Bucket-level config (AWS) |
+| Private key on restore host only | App server compromise (can't decrypt backups) | `DECRYPTION_PRIVATE_KEY_FILE` only on restore host |
 
 ## Building from Source
 
