@@ -150,3 +150,44 @@ func (s *S3Client) ListBackups(ctx context.Context) ([]string, error) {
 
 	return backups, nil
 }
+
+// DownloadBackup downloads an object from S3 and returns a reader for its
+// contents. The caller should close the reader when done.
+func (s *S3Client) DownloadBackup(ctx context.Context, objectName string) (io.ReadCloser, error) {
+	obj, err := s.client.GetObject(ctx, s.bucketName, objectName, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to download backup %s: %w", objectName, err)
+	}
+	return obj, nil
+}
+
+// GetLatestBackup returns the object name of the most recently modified backup
+// matching the given database name and type. If no backups are found, an error
+// is returned.
+func (s *S3Client) GetLatestBackup(ctx context.Context, dbName, dbType string) (string, error) {
+	prefix := fmt.Sprintf("%s/%s-%s-", s.prefix, dbName, dbType)
+
+	objectCh := s.client.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	})
+
+	var backups []minio.ObjectInfo
+	for object := range objectCh {
+		if object.Err != nil {
+			return "", fmt.Errorf("error listing objects: %w", object.Err)
+		}
+		backups = append(backups, object)
+	}
+
+	if len(backups) == 0 {
+		return "", fmt.Errorf("no backups found for %s/%s with prefix %s", dbName, dbType, prefix)
+	}
+
+	// Sort by last modified time (newest first)
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].LastModified.After(backups[j].LastModified)
+	})
+
+	return backups[0].Key, nil
+}
