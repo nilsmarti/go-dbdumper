@@ -2,13 +2,13 @@ package restore
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"filippo.io/age"
 	"github.com/nilsmarti/go-dbdumper/config"
@@ -54,7 +54,7 @@ type RestoreOptions struct {
 // Restore downloads a backup from S3, decrypts it if needed, and streams it
 // into the appropriate database restore command (mysql or psql).
 func (s *Service) Restore(ctx context.Context, opts RestoreOptions) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.BackupTimeout)
 	defer cancel()
 
 	objectName := opts.ObjectName
@@ -70,8 +70,11 @@ func (s *Service) Restore(ctx context.Context, opts RestoreOptions) error {
 
 	fmt.Printf("Restoring backup: %s\n", objectName)
 
-	// Determine if the backup is encrypted based on the file suffix.
+	// Determine the transformations applied based on the file suffix.
+	// Suffixes: .sql (plain), .sql.gz (compressed), .sql.age (encrypted),
+	// .sql.gz.age (compressed + encrypted).
 	encrypted := strings.HasSuffix(objectName, ".age")
+	compressed := strings.Contains(objectName, ".gz")
 
 	// If encrypted, load the decryption identity.
 	var identities []age.Identity
@@ -90,8 +93,9 @@ func (s *Service) Restore(ctx context.Context, opts RestoreOptions) error {
 	}
 	defer downloadReader.Close()
 
-	// Set up the plaintext stream. If encrypted, wrap the download reader in
-	// an age decryptor.
+	// Build the decompression/decryption pipeline in the reverse order of how
+	// the backup was created (encrypt was last, so decrypt is first):
+	//   S3 → [age decrypt] → [gzip decompress] → mysql/psql stdin
 	var plaintextReader io.Reader = downloadReader
 	if encrypted {
 		decReader, err := encryption.Decrypt(downloadReader, identities)
@@ -99,6 +103,13 @@ func (s *Service) Restore(ctx context.Context, opts RestoreOptions) error {
 			return fmt.Errorf("failed to create age decryptor: %w", err)
 		}
 		plaintextReader = decReader
+	}
+	if compressed {
+		gzReader, err := gzip.NewReader(plaintextReader)
+		if err != nil {
+			return fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		plaintextReader = gzReader
 	}
 
 	// If dry-run, pipe plaintext to stdout and exit.

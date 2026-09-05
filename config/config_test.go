@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestLoad(t *testing.T) {
@@ -136,6 +137,8 @@ func setBaseEnv(t *testing.T) {
 	os.Unsetenv("BACKUP_PREFIX")
 	os.Unsetenv("S3_REGION")
 	os.Unsetenv("S3_USE_SSL")
+	os.Unsetenv("BACKUP_TIMEOUT")
+	os.Unsetenv("COMPRESSION_ENABLED")
 }
 
 // clearEncryptionEnv unsets all encryption-related env vars.
@@ -268,5 +271,100 @@ func TestLoadDecryptionKeySet(t *testing.T) {
 	}
 	if cfg.DecryptionPrivateKey != "AGE-SECRET-KEY-1dummy" {
 		t.Errorf("Expected DecryptionPrivateKey 'AGE-SECRET-KEY-1dummy', got %q", cfg.DecryptionPrivateKey)
+	}
+}
+
+func TestLoadBackupTimeoutDefault(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if cfg.BackupTimeout != 30*time.Minute {
+		t.Errorf("Expected default BackupTimeout 30m, got %v", cfg.BackupTimeout)
+	}
+}
+
+func TestLoadBackupTimeoutCustom(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("BACKUP_TIMEOUT", "1h30m")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	expected := 90 * time.Minute
+	if cfg.BackupTimeout != expected {
+		t.Errorf("Expected BackupTimeout %v, got %v", expected, cfg.BackupTimeout)
+	}
+}
+
+func TestLoadBackupTimeoutInvalid(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("BACKUP_TIMEOUT", "not-a-duration")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error for invalid BACKUP_TIMEOUT, got nil")
+	}
+}
+
+func TestLoadBackupTimeoutZero(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("BACKUP_TIMEOUT", "0s")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error for zero BACKUP_TIMEOUT, got nil")
+	}
+}
+
+func TestLoadCompressionDefaultEnabled(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if !cfg.CompressionEnabled {
+		t.Error("Expected CompressionEnabled to be true by default")
+	}
+}
+
+func TestLoadCompressionDisabled(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("COMPRESSION_ENABLED", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+	if cfg.CompressionEnabled {
+		t.Error("Expected CompressionEnabled to be false")
+	}
+}
+
+func TestLoadCompressionInvalid(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	clearDecryptionEnv()
+	os.Setenv("COMPRESSION_ENABLED", "not-a-bool")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error for invalid COMPRESSION_ENABLED, got nil")
 	}
 }

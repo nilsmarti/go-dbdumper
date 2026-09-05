@@ -24,6 +24,8 @@ services:
       - CRON_EXPRESSION=0 0 * * * # Daily at midnight
       - KEEP_LAST=5 # Keep last 5 backups
       - BACKUP_PREFIX=myapp
+      - BACKUP_TIMEOUT=30m # Timeout per backup/restore operation
+      - COMPRESSION_ENABLED=true # Gzip-compress backups before encryption
 
       # Encryption configuration (optional, enable for encrypted backups)
       # Generate a key pair with: age-keygen -o key.txt
