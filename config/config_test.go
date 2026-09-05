@@ -117,3 +117,104 @@ func TestLoadInvalidDBType(t *testing.T) {
 		t.Fatal("Expected error for invalid DB_TYPE, got nil")
 	}
 }
+
+// setBaseEnv sets the minimum required env vars for a valid config.
+func setBaseEnv(t *testing.T) {
+	t.Helper()
+	os.Setenv("DB_TYPE", "mysql")
+	os.Setenv("DB_HOST", "localhost")
+	os.Setenv("DB_NAME", "testdb")
+	os.Setenv("DB_USER", "user")
+	os.Setenv("DB_PASSWORD", "password")
+	os.Setenv("S3_ENDPOINT", "localhost:9000")
+	os.Setenv("S3_BUCKET", "backups")
+	os.Setenv("S3_ACCESS_KEY", "accesskey")
+	os.Setenv("S3_SECRET_KEY", "secretkey")
+	os.Unsetenv("DB_PORT")
+	os.Unsetenv("KEEP_LAST")
+	os.Unsetenv("CRON_EXPRESSION")
+	os.Unsetenv("BACKUP_PREFIX")
+	os.Unsetenv("S3_REGION")
+	os.Unsetenv("S3_USE_SSL")
+}
+
+// clearEncryptionEnv unsets all encryption-related env vars.
+func clearEncryptionEnv() {
+	os.Unsetenv("ENCRYPTION_ENABLED")
+	os.Unsetenv("ENCRYPTION_PUBLIC_KEY")
+	os.Unsetenv("ENCRYPTION_PUBLIC_KEY_FILE")
+}
+
+func TestLoadEncryptionDisabledByDefault(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load configuration: %v", err)
+	}
+	if cfg.EncryptionEnabled {
+		t.Error("Expected EncryptionEnabled to be false by default")
+	}
+	if len(cfg.EncryptionRecipients) != 0 {
+		t.Errorf("Expected no recipients when disabled, got %d", len(cfg.EncryptionRecipients))
+	}
+}
+
+func TestLoadEncryptionEnabledWithoutKey(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	os.Setenv("ENCRYPTION_ENABLED", "true")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error when encryption enabled without a key, got nil")
+	}
+}
+
+func TestLoadEncryptionEnabledWithKey(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	os.Setenv("ENCRYPTION_ENABLED", "true")
+	// A dummy key string. Config validation only checks presence; age format
+	// validation happens at backup time in the encryption package.
+	os.Setenv("ENCRYPTION_PUBLIC_KEY", "age1dummykey")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Failed to load config with encryption key: %v", err)
+	}
+	if !cfg.EncryptionEnabled {
+		t.Error("Expected EncryptionEnabled to be true")
+	}
+	if len(cfg.EncryptionRecipients) != 1 {
+		t.Errorf("Expected 1 recipient, got %d", len(cfg.EncryptionRecipients))
+	}
+	if cfg.EncryptionRecipients[0] != "age1dummykey" {
+		t.Errorf("Expected recipient 'age1dummykey', got %q", cfg.EncryptionRecipients[0])
+	}
+}
+
+func TestLoadEncryptionBothKeySources(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	os.Setenv("ENCRYPTION_ENABLED", "true")
+	os.Setenv("ENCRYPTION_PUBLIC_KEY", "age1dummy")
+	os.Setenv("ENCRYPTION_PUBLIC_KEY_FILE", "/tmp/dummy")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error when both key sources are set, got nil")
+	}
+}
+
+func TestLoadEncryptionInvalidEnabled(t *testing.T) {
+	setBaseEnv(t)
+	clearEncryptionEnv()
+	os.Setenv("ENCRYPTION_ENABLED", "not-a-bool")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Expected error for invalid ENCRYPTION_ENABLED value, got nil")
+	}
+}

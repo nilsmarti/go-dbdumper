@@ -45,6 +45,26 @@ The application is configured entirely through environment variables:
 | `KEEP_LAST` | Number of backups to keep | `5` |
 | `BACKUP_PREFIX` | Prefix for backup files in S3 | `backup` |
 
+### Encryption Configuration
+
+Backups can be asymmetrically encrypted client-side using [age](https://age-encryption.org) before they reach S3. The app server holds only the **public key** (age recipient) and can therefore encrypt backups without ever being able to decrypt them. Decryption requires the corresponding **private key** (age identity), which should live on a separate, hardened restore host — never on the app server.
+
+| Variable | Description | Default |
+|----------|-------------|--------|
+| `ENCRYPTION_ENABLED` | Enable client-side encryption of backups | `false` |
+| `ENCRYPTION_PUBLIC_KEY` | Age recipient key (`age1...`), mutually exclusive with `ENCRYPTION_PUBLIC_KEY_FILE` | *required if enabled* |
+| `ENCRYPTION_PUBLIC_KEY_FILE` | Path to a file containing one or more age recipients (one per line, `#` comments allowed) | *required if enabled* |
+
+When encryption is enabled, backup objects use the `.sql.age` suffix instead of `.sql`.
+
+To generate a key pair:
+
+```bash
+age-keygen -o key.txt   # contains the identity (AGE-SECRET-KEY-1...) and recipient (age1...)
+```
+
+Keep `key.txt` (the private key) offline or on your restore host. Put the `age1...` public key into `ENCRYPTION_PUBLIC_KEY` or `ENCRYPTION_PUBLIC_KEY_FILE` on the app server.
+
 ## Usage
 
 ### Using Docker
@@ -64,6 +84,8 @@ docker run -d \
   -e S3_SECRET_KEY=your-secret-key \
   -e CRON_EXPRESSION="0 0 * * *" \
   -e KEEP_LAST=5 \
+  -e ENCRYPTION_ENABLED=true \
+  -e ENCRYPTION_PUBLIC_KEY=age1... \
   nilsmarti/go-dbdumper:latest
 ```
 

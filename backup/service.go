@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nilsmarti/go-dbdumper/config"
+	"github.com/nilsmarti/go-dbdumper/encryption"
 	"github.com/nilsmarti/go-dbdumper/storage"
 )
 
@@ -88,20 +89,52 @@ func (s *Service) PerformBackup(ctx context.Context) error {
 		// Create a buffer to capture stderr
 		var stderr bytes.Buffer
 
-		// Set the output to the pipe writer and capture stderr
-		cmd.Stdout = pw
+		// Set stderr capture
 		cmd.Stderr = &stderr
 
+		// Determine where the dump command writes its plaintext stdout.
+		// If encryption is enabled, an age encryptor is inserted between the
+		// dump command and the pipe writer so that only ciphertext reaches S3.
+		var dumpOutput io.Writer = pw
+		var encWriter io.WriteCloser
+		if s.cfg.EncryptionEnabled {
+			recipients, err := encryption.ParseRecipients(s.cfg.EncryptionRecipients...)
+			if err != nil {
+				pw.CloseWithError(fmt.Errorf("failed to parse encryption recipients: %w", err))
+				return
+			}
+			encWriter, err = encryption.Encrypt(pw, recipients)
+			if err != nil {
+				pw.CloseWithError(fmt.Errorf("failed to create age encryptor: %w", err))
+				return
+			}
+			dumpOutput = encWriter
+		}
+
+		cmd.Stdout = dumpOutput
+
 		// Run the command
-		if err := cmd.Run(); err != nil {
+		runErr := cmd.Run()
+
+		// Close the encryptor first (if present) to flush the final encrypted
+		// chunk before closing the pipe writer.
+		if encWriter != nil {
+			if err := encWriter.Close(); err != nil {
+				if runErr == nil {
+					runErr = fmt.Errorf("failed to finalize encryption: %w", err)
+				}
+			}
+		}
+
+		if runErr != nil {
 			errOutput := stderr.String()
 			fmt.Printf("Database dump error output: %s\n", errOutput)
-			pw.CloseWithError(fmt.Errorf("database dump failed: %w (stderr: %s)", err, errOutput))
+			pw.CloseWithError(fmt.Errorf("database dump failed: %w (stderr: %s)", runErr, errOutput))
 		}
 	}()
 
 	// Upload the backup to S3
-	objName, uploadErr := s.s3Client.UploadBackup(ctx, pr, s.cfg.DBName, string(s.cfg.DBType))
+	objName, uploadErr := s.s3Client.UploadBackup(ctx, pr, s.cfg.DBName, string(s.cfg.DBType), s.cfg.EncryptionEnabled)
 	// Wait for the dump goroutine to finish before returning so the temp
 	// credentials file is not removed while the command might still read it.
 	wg.Wait()

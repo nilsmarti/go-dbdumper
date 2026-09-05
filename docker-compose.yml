@@ -24,6 +24,14 @@ services:
       - CRON_EXPRESSION=0 0 * * * # Daily at midnight
       - KEEP_LAST=5 # Keep last 5 backups
       - BACKUP_PREFIX=myapp
+
+      # Encryption configuration (optional, enable for encrypted backups)
+      # Generate a key pair with: age-keygen -o key.txt
+      # Put the age1... public key here; keep the private key offline.
+      - ENCRYPTION_ENABLED=false
+      # - ENCRYPTION_PUBLIC_KEY=age1...
+      # Alternatively, mount a file with one or more recipients:
+      # - ENCRYPTION_PUBLIC_KEY_FILE=/run/secrets/age_recipients
     restart: unless-stopped
     depends_on:
       - minio

@@ -3,6 +3,7 @@ module github.com/nilsmarti/go-dbdumper
 go 1.23.0
 
 require (
+	filippo.io/age v1.2.1
 	github.com/minio/minio-go/v7 v7.0.92
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.9.1

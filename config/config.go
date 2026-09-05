@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // DatabaseType represents the type of database
@@ -20,25 +21,31 @@ const (
 // Config holds all application configuration
 type Config struct {
 	// Database configuration
-	DBType       DatabaseType
-	DBHost       string
-	DBPort       string
-	DBName       string
-	DBUser       string
-	DBPassword   string
+	DBType     DatabaseType
+	DBHost     string
+	DBPort     string
+	DBName     string
+	DBUser     string
+	DBPassword string
 
 	// S3 configuration
-	S3Endpoint   string
-	S3Region     string
-	S3Bucket     string
-	S3AccessKey  string
-	S3SecretKey  string
-	S3UseSSL     bool
+	S3Endpoint  string
+	S3Region    string
+	S3Bucket    string
+	S3AccessKey string
+	S3SecretKey string
+	S3UseSSL    bool
 
 	// Backup configuration
 	CronExpression string
 	KeepLast       int
 	BackupPrefix   string
+
+	// Encryption configuration
+	EncryptionEnabled       bool
+	EncryptionPublicKey     string   // age recipient key (age1...) — mutually exclusive with EncryptionPublicKeyFile
+	EncryptionPublicKeyFile string   // path to a file containing one or more age recipients
+	EncryptionRecipients    []string // parsed recipient keys, ready for use
 }
 
 // Load loads configuration from environment variables
@@ -140,21 +147,82 @@ func Load() (*Config, error) {
 		backupPrefix = "backup" // Default prefix
 	}
 
+	// --- Encryption configuration ---
+	encryptionEnabledStr := os.Getenv("ENCRYPTION_ENABLED")
+	encryptionEnabled := false
+	if encryptionEnabledStr != "" {
+		var err error
+		encryptionEnabled, err = strconv.ParseBool(encryptionEnabledStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ENCRYPTION_ENABLED value: %v", err)
+		}
+	}
+
+	encryptionPublicKey := os.Getenv("ENCRYPTION_PUBLIC_KEY")
+	encryptionPublicKeyFile := os.Getenv("ENCRYPTION_PUBLIC_KEY_FILE")
+
+	if encryptionEnabled {
+		if encryptionPublicKey == "" && encryptionPublicKeyFile == "" {
+			return nil, errors.New("ENCRYPTION_ENABLED is true but neither ENCRYPTION_PUBLIC_KEY nor ENCRYPTION_PUBLIC_KEY_FILE is set")
+		}
+		if encryptionPublicKey != "" && encryptionPublicKeyFile != "" {
+			return nil, errors.New("ENCRYPTION_PUBLIC_KEY and ENCRYPTION_PUBLIC_KEY_FILE are mutually exclusive")
+		}
+	}
+
+	// Parse recipients eagerly so that config errors surface at startup rather
+	// than at the first backup.
+	var encryptionRecipients []string
+	if encryptionEnabled {
+		if encryptionPublicKeyFile != "" {
+			data, err := os.ReadFile(encryptionPublicKeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read ENCRYPTION_PUBLIC_KEY_FILE: %w", err)
+			}
+			for _, line := range splitNonEmptyLines(string(data)) {
+				encryptionRecipients = append(encryptionRecipients, line)
+			}
+		} else {
+			encryptionRecipients = splitNonEmptyLines(encryptionPublicKey)
+		}
+		if len(encryptionRecipients) == 0 {
+			return nil, errors.New("ENCRYPTION_ENABLED is true but no valid recipient keys were found")
+		}
+	}
+
 	return &Config{
-		DBType:         DatabaseType(dbType),
-		DBHost:         dbHost,
-		DBPort:         dbPort,
-		DBName:         dbName,
-		DBUser:         dbUser,
-		DBPassword:     dbPassword,
-		S3Endpoint:     s3Endpoint,
-		S3Region:       s3Region,
-		S3Bucket:       s3Bucket,
-		S3AccessKey:    s3AccessKey,
-		S3SecretKey:    s3SecretKey,
-		S3UseSSL:       s3UseSSL,
-		CronExpression: cronExpression,
-		KeepLast:       keepLast,
-		BackupPrefix:   backupPrefix,
+		DBType:                  DatabaseType(dbType),
+		DBHost:                  dbHost,
+		DBPort:                  dbPort,
+		DBName:                  dbName,
+		DBUser:                  dbUser,
+		DBPassword:              dbPassword,
+		S3Endpoint:              s3Endpoint,
+		S3Region:                s3Region,
+		S3Bucket:                s3Bucket,
+		S3AccessKey:             s3AccessKey,
+		S3SecretKey:             s3SecretKey,
+		S3UseSSL:                s3UseSSL,
+		CronExpression:          cronExpression,
+		KeepLast:                keepLast,
+		BackupPrefix:            backupPrefix,
+		EncryptionEnabled:       encryptionEnabled,
+		EncryptionPublicKey:     encryptionPublicKey,
+		EncryptionPublicKeyFile: encryptionPublicKeyFile,
+		EncryptionRecipients:    encryptionRecipients,
 	}, nil
+}
+
+// splitNonEmptyLines splits a string by newlines/commas and returns non-empty,
+// trimmed lines. Lines starting with "#" are treated as comments and ignored.
+func splitNonEmptyLines(s string) []string {
+	var result []string
+	for _, line := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == ',' }) {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		result = append(result, line)
+	}
+	return result
 }
