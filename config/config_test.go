@@ -137,11 +137,34 @@ func setBaseEnv(t *testing.T) {
 	os.Unsetenv("BACKUP_PREFIX")
 	os.Unsetenv("S3_REGION")
 	os.Unsetenv("S3_USE_SSL")
+	os.Unsetenv("S3_FORCE_PATH_STYLE")
 	os.Unsetenv("BACKUP_TIMEOUT")
 	os.Unsetenv("COMPRESSION_ENABLED")
 	os.Unsetenv("CLEANUP_ENABLED")
 	os.Unsetenv("OBJECT_LOCK_MODE")
 	os.Unsetenv("OBJECT_LOCK_RETAIN_UNTIL_DAYS")
+}
+
+func TestLoadS3ForcePathStyle(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("S3_FORCE_PATH_STYLE", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if !cfg.S3ForcePathStyle {
+		t.Fatal("expected S3ForcePathStyle to be enabled")
+	}
+}
+
+func TestLoadInvalidS3ForcePathStyle(t *testing.T) {
+	setBaseEnv(t)
+	t.Setenv("S3_FORCE_PATH_STYLE", "invalid")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected invalid S3_FORCE_PATH_STYLE to fail")
+	}
 }
 
 // clearEncryptionEnv unsets all encryption-related env vars.

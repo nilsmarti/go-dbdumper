@@ -37,11 +37,18 @@ func NewS3Client(cfg *config.Config) (*S3Client, error) {
 		endpoint = endpoint[:idx]
 	}
 
+	// Force path-style bucket URLs for S3-compatible endpoints that require it.
+	bucketLookup := minio.BucketLookupAuto
+	if cfg.S3ForcePathStyle {
+		bucketLookup = minio.BucketLookupPath
+	}
+
 	// Initialize minio client
 	client, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
-		Secure: cfg.S3UseSSL,
-		Region: cfg.S3Region,
+		Creds:        credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
+		Secure:       cfg.S3UseSSL,
+		Region:       cfg.S3Region,
+		BucketLookup: bucketLookup,
 	})
 
 	if err != nil {

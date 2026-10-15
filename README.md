@@ -53,6 +53,7 @@ The application is configured entirely through environment variables:
 | `S3_ACCESS_KEY` | S3 access key | *required* |
 | `S3_SECRET_KEY` | S3 secret key | *required* |
 | `S3_USE_SSL` | Whether to use SSL for S3 connections | `true` |
+| `S3_FORCE_PATH_STYLE` | Force path-style bucket URLs for S3-compatible storage such as Swift | `false` |
 
 ### Backup Configuration
 

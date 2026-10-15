@@ -30,12 +30,13 @@ type Config struct {
 	DBPassword string
 
 	// S3 configuration
-	S3Endpoint  string
-	S3Region    string
-	S3Bucket    string
-	S3AccessKey string
-	S3SecretKey string
-	S3UseSSL    bool
+	S3Endpoint       string
+	S3Region         string
+	S3Bucket         string
+	S3AccessKey      string
+	S3SecretKey      string
+	S3UseSSL         bool
+	S3ForcePathStyle bool
 
 	// Backup configuration
 	CronExpression string
@@ -146,6 +147,15 @@ func Load() (*Config, error) {
 		s3UseSSL, err = strconv.ParseBool(s3UseSSLStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid S3_USE_SSL value: %v", err)
+		}
+	}
+	s3ForcePathStyleStr := os.Getenv("S3_FORCE_PATH_STYLE")
+	s3ForcePathStyle := false
+	if s3ForcePathStyleStr != "" {
+		var err error
+		s3ForcePathStyle, err = strconv.ParseBool(s3ForcePathStyleStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid S3_FORCE_PATH_STYLE value: %v", err)
 		}
 	}
 
@@ -294,6 +304,7 @@ func Load() (*Config, error) {
 		S3AccessKey:               s3AccessKey,
 		S3SecretKey:               s3SecretKey,
 		S3UseSSL:                  s3UseSSL,
+		S3ForcePathStyle:          s3ForcePathStyle,
 		CronExpression:            cronExpression,
 		KeepLast:                  keepLast,
 		BackupPrefix:              backupPrefix,
