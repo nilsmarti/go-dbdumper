@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   dbdumper:
-    image: nilsmarti/go-dbdumper:latest
+    image: ndmch/go-dbdumper:latest
     environment:
       # Database configuration
       - DB_TYPE=mysql # or postgres
@@ -72,13 +72,13 @@ services:
 
   # Example PostgreSQL service (uncomment to use)
   # db:
-  #   image: postgres:14
+  #   image: postgres:18
   #   environment:
   #     - POSTGRES_DB=mydb
   #     - POSTGRES_USER=dbuser
   #     - POSTGRES_PASSWORD=dbpassword
   #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
+  #     - postgres_data:/var/lib/postgresql
 
 volumes:
   minio_data:

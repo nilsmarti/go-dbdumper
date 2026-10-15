@@ -11,6 +11,23 @@ A lightweight Go application that creates database dumps and uploads them direct
 - Docker support for easy deployment
 - Command-line interface for manual backups
 
+## PostgreSQL versions
+
+The Docker image includes PostgreSQL 18 client tools (`pg_dump` and `psql`).
+PostgreSQL 18's `pg_dump` supports source servers from PostgreSQL 9.2 through
+18. It refuses to dump a server newer than its own major version. For a PG18
+database, use this image (or install PostgreSQL 18 client tools when running
+the application outside Docker). Backups remain plain SQL before optional gzip
+compression and age encryption; enable encryption with the settings below.
+
+Restore to a PostgreSQL 18 server when recovering a PG18 backup. Loading a dump
+into an older major version is not guaranteed to work. Test a restore into a
+fresh database before relying on a backup schedule.
+
+The optional PostgreSQL 18 server example in `docker-compose.yml` mounts its
+data volume at `/var/lib/postgresql`, as required by the official PG18 image.
+Do not reuse a volume from an older PostgreSQL server without migrating its data.
+
 ## Configuration
 
 The application is configured entirely through environment variables:
@@ -102,7 +119,7 @@ docker run -d \
   -e KEEP_LAST=5 \
   -e ENCRYPTION_ENABLED=true \
   -e ENCRYPTION_PUBLIC_KEY=age1... \
-  nilsmarti/go-dbdumper:latest
+  ndmch/go-dbdumper:latest
 ```
 
 ### Using Docker Compose
@@ -114,7 +131,7 @@ version: '3.8'
 
 services:
   dbdumper:
-    image: nilsmarti/go-dbdumper:latest
+    image: ndmch/go-dbdumper:latest
     environment:
       # Database configuration
       - DB_TYPE=mysql # or postgres
@@ -158,22 +175,22 @@ Example:
 
 ```bash
 # Run the scheduler
-docker run nilsmarti/go-dbdumper:latest run
+docker run ndmch/go-dbdumper:latest run
 
 # Run a backup immediately
-docker run nilsmarti/go-dbdumper:latest backup-now
+docker run ndmch/go-dbdumper:latest backup-now
 
 # List available backups
-docker run nilsmarti/go-dbdumper:latest list-backups
+docker run ndmch/go-dbdumper:latest list-backups
 
 # Restore the latest backup
-docker run nilsmarti/go-dbdumper:latest restore
+docker run ndmch/go-dbdumper:latest restore
 
 # Restore a specific backup
-docker run nilsmarti/go-dbdumper:latest restore --object backup/mydb-mysql-20260101-120000.sql.age
+docker run ndmch/go-dbdumper:latest restore --object backup/mydb-mysql-20260101-120000.sql.age
 
 # Dry-run: decrypt and print to stdout without modifying the database
-docker run nilsmarti/go-dbdumper:latest restore --dry-run
+docker run ndmch/go-dbdumper:latest restore --dry-run
 ```
 
 ### Restore Configuration
@@ -201,7 +218,7 @@ docker run -i --rm \
   -e S3_SECRET_KEY=your-secret-key \
   -e DECRYPTION_PRIVATE_KEY_FILE=/run/secrets/age_identity \
   -v /path/to/key.txt:/run/secrets/age_identity:ro \
-  nilsmarti/go-dbdumper:latest restore
+  ndmch/go-dbdumper:latest restore
 ```
 
 ## Security Hardening

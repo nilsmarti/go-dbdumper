@@ -25,3 +25,19 @@ jobs:
 
       - name: Run tests
         run: go test -v ./...
+
+  docker:
+    name: Build image with PostgreSQL 18 client
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Build Docker image
+        run: docker build -t go-dbdumper:test .
+
+      - name: Check PostgreSQL client versions
+        run: docker run --rm --entrypoint pg_dump go-dbdumper:test --version | grep -E '^pg_dump \(PostgreSQL\) 18\.'
+
+      - name: Check psql version
+        run: docker run --rm --entrypoint psql go-dbdumper:test --version | grep -E '^psql \(PostgreSQL\) 18\.'
